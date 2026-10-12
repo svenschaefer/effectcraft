@@ -571,12 +571,12 @@ impl PropGroup {
     }
     /// Re-assign fresh uids (after duplicating a subtree).
     pub fn reassign_uids(&mut self, next: &mut Uid) {
-        *next += 1;
+        *next = next.saturating_add(1);
         self.uid = *next;
         for c in &mut self.children {
             match c {
                 Node::Prop(p) => {
-                    *next += 1;
+                    *next = next.saturating_add(1);
                     p.uid = *next;
                 }
                 Node::Group(g) => g.reassign_uids(next),
@@ -584,13 +584,18 @@ impl PropGroup {
         }
     }
     pub fn max_uid(&self) -> Uid {
-        self.children
-            .iter()
-            .map(|c| match c {
-                Node::Prop(p) => p.uid,
-                Node::Group(g) => g.max_uid(),
-            })
-            .fold(self.uid, Uid::max)
+        let mut maximum = self.uid;
+        let mut pending = vec![self];
+        while let Some(group) = pending.pop() {
+            maximum = maximum.max(group.uid);
+            for node in &group.children {
+                match node {
+                    Node::Prop(property) => maximum = maximum.max(property.uid),
+                    Node::Group(child) => pending.push(child),
+                }
+            }
+        }
+        maximum
     }
 }
 

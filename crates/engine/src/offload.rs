@@ -440,8 +440,9 @@ pub async fn run_request_async(s: &mut Session, req: WorkerRequest, post: &Post)
     QUEUED.with(|q| *q.borrow_mut() = Some(vec![]));
     match Project::from_json(&req.project) {
         Ok(p) => {
-            s.replace_project(p, None);
-            if let Err(e) = run_job(s, req.job, post.clone()).await {
+            if let Err(e) = s.replace_project(p, None) {
+                post(WorkerReply::Failed { error: format!("project: {e}") });
+            } else if let Err(e) = run_job(s, req.job, post.clone()).await {
                 post(WorkerReply::Failed { error: e });
             }
         }
@@ -1129,5 +1130,43 @@ mod tests {
         }));
         report(3, 3);
         assert_eq!(*seen.borrow(), vec![(1, 3), (2, 3)]);
+    }
+
+    #[test]
+    fn worker_migration_exhaustion_reports_failure_and_done_without_replacing_the_project() {
+        let mut legacy = crate::demo::demo_project();
+        let comps: Vec<_> = legacy.comps().map(|(id, _)| *id).collect();
+        let mut missing_parameters = false;
+        for id in comps {
+            for layer in &mut legacy.comp_mut(id).unwrap().layers {
+                if let Some(effects) = layer.props.group_mut("effects") {
+                    for node in &mut effects.children {
+                        if let effectcraft_project::Node::Group(group) = node {
+                            missing_parameters |= !group.children.is_empty();
+                            group.children.clear();
+                        }
+                    }
+                }
+            }
+        }
+        assert!(missing_parameters, "fixture must require effect parameter migration");
+        legacy.schema = 1;
+        legacy.next_id = effectcraft_project::MAX_NEXT_ID - 2;
+        let project = legacy.to_json();
+        assert!(Project::from_json(&project).is_ok(), "the input must be valid before migration");
+
+        let mut session = Session::default();
+        let before = session.project.clone();
+        let replies = Rc::new(RefCell::new(Vec::new()));
+        let output = replies.clone();
+        let post: Post = Rc::new(move |reply| output.borrow_mut().push(reply));
+        let request = WorkerRequest { id: 42, project, files: vec![], job: WorkerJob::Render { items: vec![] } };
+        run_request(&mut session, request, &post);
+
+        assert!(Arc::ptr_eq(&session.project, &before));
+        let replies = replies.borrow();
+        assert!(matches!(replies.as_slice(), [WorkerReply::Failed { error }, WorkerReply::Done] if error.contains("counter")));
+        assert!(QUEUED.with(|queue| queue.borrow().is_none()));
+        assert!(JOB_ACCEL.with(|accel| accel.borrow().is_none()));
     }
 }

@@ -236,6 +236,8 @@ pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub(crate) name: String,
+    /// Windows Intel Vulkan comparisons require CPU reference math for six effects.
+    pub(crate) intel_vulkan: bool,
     pub(crate) max_dim: u32,
     bgl: wgpu::BindGroupLayout,
     bgl_ext: wgpu::BindGroupLayout,
@@ -583,6 +585,7 @@ impl GpuContext {
             device,
             queue,
             name,
+            intel_vulkan: cfg!(target_os = "windows") && info.vendor == 0x8086 && info.backend == wgpu::Backend::Vulkan,
             max_dim,
             bgl,
             bgl_ext,

@@ -22,7 +22,7 @@ fn harness(s: Session) -> Harness<'static, EffectcraftApp> {
 
 fn large() -> Session {
     let mut s = Session::default();
-    s.replace_project(large_project(&spec()), None);
+    s.replace_project(large_project(&spec()), None).unwrap();
     s
 }
 

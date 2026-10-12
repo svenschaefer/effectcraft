@@ -217,7 +217,10 @@ pub fn restore(s: &mut Session) -> bool {
             return false;
         }
     };
-    s.replace_project(p, meta.path.clone());
+    if let Err(e) = s.replace_project(p, meta.path.clone()) {
+        log::warn!("restoring the last session: {e}");
+        return false;
+    }
     if let Some(st) = meta.state.and_then(|v| serde_json::from_value(v).ok()) {
         s.state = st;
     }

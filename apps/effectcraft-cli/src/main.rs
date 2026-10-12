@@ -856,7 +856,7 @@ fn bench_ops(args: &Args) -> Result<(), Failure> {
     let t0 = std::time::Instant::now();
     drop(effectcraft_host::session());
     let host_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    let (mut m, _) = perf::ops_bench(&spec, &dir, &effectcraft_host::session);
+    let (mut m, _) = perf::ops_bench(&spec, &dir, &effectcraft_host::session).map_err(|e| Failure::Error(e.to_string()))?;
     m.insert(0, perf::Measure { name: "hostSession", ms: host_ms, note: "a fully wired session (media, expressions, scripting, export)".into() });
     let path = dir.join("bench-large.ecproj").to_string_lossy().to_string();
     m.extend(effectcraft_ui_egui::bench::ui_ops(|| {

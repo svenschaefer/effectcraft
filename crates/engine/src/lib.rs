@@ -640,6 +640,7 @@ impl Session {
 
     /// Apply an undoable edit. `merge`: consecutive edits with the same key fold into one step.
     pub fn edit<T>(&mut self, label: &str, merge: Option<&str>, f: impl FnOnce(&mut Project, &mut EditorState) -> Result<T>) -> Result<T> {
+        self.project.check_id_counter()?;
         let before = self.project.clone();
         let mut p = (*self.project).clone();
         let mut st = self.state.clone();
@@ -648,6 +649,7 @@ impl Session {
         effectcraft_project::styles::sync_global_light(&before, &mut p);
         // Essential Properties of precomp layers follow their comps' Essential Graphics.
         effectcraft_project::essential::sync_project(&before, &mut p);
+        p.check_id_counter()?;
         // Warp Stabilizer analyses made from other frames are cleared (and queued again).
         for w in warp::invalidate(&before, &mut p) {
             if !self.warp_pending.contains(&w) {
@@ -958,7 +960,12 @@ impl Session {
     }
 
     /// Replace the whole project (open/new), resetting history and state.
-    pub fn replace_project(&mut self, mut p: Project, path: Option<String>) {
+    pub fn replace_project(&mut self, mut p: Project, path: Option<String>) -> Result<()> {
+        // Validate before cancelling work or changing the current session.
+        p.fix_next_id();
+        p.check()?;
+        upgrade_effects(&mut p);
+        p.check()?;
         if self.stop_render()
             && let Some(mut job) = self.render_job.take()
         {
@@ -980,8 +987,6 @@ impl Session {
         self.roto_job = None;
         self.roto_pending.clear();
         self.drop_tasks();
-        p.fix_next_id();
-        upgrade_effects(&mut p);
         self.project = Arc::new(p);
         self.history = History::default();
         self.state = EditorState { snapping: true, view_layout: 1, ..Default::default() };
@@ -992,6 +997,7 @@ impl Session {
         if let Some(c) = first {
             self.open_comp(c);
         }
+        Ok(())
     }
 }
 
@@ -1089,6 +1095,8 @@ mod tests_model3d;
 mod tests_motion_blur_depth;
 #[cfg(test)]
 mod tests_project_items;
+#[cfg(test)]
+mod tests_project_validation;
 #[cfg(test)]
 mod tests_proxy;
 #[cfg(test)]

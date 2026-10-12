@@ -266,7 +266,7 @@ pub fn time_best<T>(runs: usize, mut f: impl FnMut() -> T) -> (f64, T) {
 /// The engine-side everyday operations on a large project: build, save, open (into a session
 /// from `fresh`), first frame, small and large edits with undo/redo, auto-save. Files go into
 /// `dir`. Returns the measurements and the opened session (for the UI-side numbers).
-pub fn ops_bench(spec: &LargeSpec, dir: &std::path::Path, fresh: &dyn Fn() -> Session) -> (Vec<Measure>, Session) {
+pub fn ops_bench(spec: &LargeSpec, dir: &std::path::Path, fresh: &dyn Fn() -> Session) -> crate::Result<(Vec<Measure>, Session)> {
     let mut out = vec![];
     let (ms, project) = time_best(1, || large_project(spec));
     let comps = project.comps().count();
@@ -276,7 +276,7 @@ pub fn ops_bench(spec: &LargeSpec, dir: &std::path::Path, fresh: &dyn Fn() -> Se
     let path = dir.join("bench-large.ecproj");
     let path_s = path.to_string_lossy().to_string();
     let mut s = fresh();
-    s.replace_project(project, None);
+    s.replace_project(project, None)?;
     let (ms, r) = time_best(3, || s.execute("file.saveAs", json!({"path": path_s})).expect("save"));
     out.push(Measure { name: "save", ms, note: format!("{} bytes", r["bytes"]) });
 
@@ -345,7 +345,7 @@ pub fn ops_bench(spec: &LargeSpec, dir: &std::path::Path, fresh: &dyn Fn() -> Se
     out.push(Measure { name: "autosaveUiThread", ms, note: "background auto-save: UI-thread share".into() });
     s.autosave.background = false;
     let _ = s.autosave_wait();
-    (out, s)
+    Ok((out, s))
 }
 
 #[cfg(test)]
@@ -364,7 +364,7 @@ mod tests {
         let back = Project::from_json(&p.to_json()).unwrap();
         assert_eq!(back, p);
         let mut s = Session::default();
-        s.replace_project(p, None);
+        s.replace_project(p, None).unwrap();
         assert_eq!(s.active_comp().map(|c| c.layers.len()), Some(spec.main_layers));
         // The nesting chain is `nest_depth` deep.
         let mut depth = 0;
@@ -385,7 +385,7 @@ mod tests {
     fn ops_bench_runs_on_a_small_project() {
         let dir = std::env::temp_dir().join(format!("ec-ops-bench-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let (m, s) = ops_bench(&LargeSpec::small(), &dir, &Session::default);
+        let (m, s) = ops_bench(&LargeSpec::small(), &dir, &Session::default).unwrap();
         let names: Vec<&str> = m.iter().map(|m| m.name).collect();
         for want in ["generate", "save", "open", "firstFrame", "smallEdit", "largeEdit", "largeUndo", "largeRedo", "autosaveSync", "autosaveUiThread"] {
             assert!(names.contains(&want), "{want}");

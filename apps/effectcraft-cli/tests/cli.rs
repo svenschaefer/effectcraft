@@ -283,7 +283,10 @@ fn render_out_is_relative_to_the_working_directory() {
             .unwrap();
         assert!(o.status.success(), "{out}: {}", String::from_utf8_lossy(&o.stderr));
         let v: Value = serde_json::from_slice(&o.stdout).unwrap();
-        PathBuf::from(v["rendered"][0]["output"].as_str().unwrap())
+        let output = PathBuf::from(v["rendered"][0]["output"].as_str().unwrap());
+        assert!(output.is_absolute(), "reported output path {output:?}");
+        // Windows may report the same file with or without the verbatim path prefix.
+        output.canonicalize().unwrap()
     };
     // A path that already names the project folder is not doubled.
     let done = render(&root, "proj/x.ecproj", "proj/out/d.gif");

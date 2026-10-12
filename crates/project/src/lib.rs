@@ -15,7 +15,7 @@ pub mod sequence;
 pub mod styles;
 pub mod tracking;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub use effectcraft_color::ColorSpace;
@@ -31,6 +31,9 @@ pub use effectcraft_keyframe::{Keyframe, Value};
 /// measure positions from the top-left of their comp-sized bounds (effect space), not from
 /// the layer's origin; projects from schema 1 are converted when opened (#227).
 pub const SCHEMA_VERSION: u32 = 2;
+
+/// IDs stay exactly representable by JSON clients, with ample headroom for builder arithmetic.
+pub const MAX_NEXT_ID: u64 = 1 << 53;
 
 /// The first schema in which effect positions are in effect space (see [`SCHEMA_VERSION`]).
 pub const SCHEMA_EFFECT_SPACE: u32 = 2;
@@ -1219,7 +1222,8 @@ impl Project {
     /// Allocate an id (items, layers and property uids share one counter).
     pub fn alloc(&mut self) -> u64 {
         let id = self.next_id;
-        self.next_id += 1;
+        // Host transactions check the counter before and after building. Never wrap into old IDs.
+        self.next_id = self.next_id.saturating_add(1);
         id
     }
     pub fn item(&self, id: ItemId) -> Option<&Item> {
@@ -1272,24 +1276,97 @@ impl Project {
     }
     /// Whether comp `inner` is (transitively) nested inside comp `outer` (to prevent cycles).
     pub fn comp_contains(&self, outer: ItemId, inner: ItemId) -> bool {
-        if outer == inner {
-            return true;
+        let mut pending = vec![outer];
+        let mut seen = BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if id == inner {
+                return true;
+            }
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(comp) = self.comp(id) {
+                pending.extend(comp.layers.iter().filter_map(|layer| match layer.source {
+                    LayerSource::Comp { item } => Some(item),
+                    _ => None,
+                }));
+            }
         }
-        let Some(c) = self.comp(outer) else { return false };
-        c.layers.iter().any(|l| matches!(l.source, LayerSource::Comp { item } if self.comp_contains(item, inner)))
+        false
     }
     /// Make sure `next_id` exceeds every id in the project (after loading or merging).
     pub fn fix_next_id(&mut self) {
-        let mut m = self.next_id;
+        let mut m = self.next_id.max(1);
         for (id, it) in &self.items {
-            m = m.max(id.0 + 1);
+            m = m.max(id.0.saturating_add(1));
             if let ItemKind::Comp(c) = &it.kind {
+                if let Some(essential) = &c.essential {
+                    for control in &essential.controls {
+                        m = m.max(control.id.saturating_add(1));
+                    }
+                }
                 for l in &c.layers {
-                    m = m.max(l.id.0 + 1).max(l.props.max_uid() + 1);
+                    m = m.max(l.id.0.saturating_add(1)).max(l.props.max_uid().saturating_add(1));
                 }
             }
         }
         self.next_id = m;
+    }
+
+    /// Cheap transaction boundary: an exhausted or forged counter cannot commit new objects.
+    pub fn check_id_counter(&self) -> Result<(), ProjectError> {
+        if self.next_id == 0 || self.next_id >= MAX_NEXT_ID {
+            return Err(ProjectError::Invalid(format!("project ID counter must be between 1 and {}", MAX_NEXT_ID - 1)));
+        }
+        Ok(())
+    }
+
+    /// Validate loaded identity and composition graphs before any UI or renderer can use them.
+    pub fn check(&self) -> Result<(), ProjectError> {
+        self.check_id_counter()?;
+        for (id, item) in &self.items {
+            if id != &item.id || id.0 == 0 || id.0 >= MAX_NEXT_ID {
+                return Err(ProjectError::Invalid("invalid or inconsistent project item ID".into()));
+            }
+            if let ItemKind::Comp(comp) = &item.kind {
+                if comp.essential.as_ref().is_some_and(|eg| eg.controls.iter().any(|control| control.id == 0 || control.id >= MAX_NEXT_ID)) {
+                    return Err(ProjectError::Invalid("invalid Essential Graphics control ID".into()));
+                }
+                let mut layers = BTreeSet::new();
+                for layer in &comp.layers {
+                    if layer.id.0 == 0 || layer.id.0 >= MAX_NEXT_ID || !layers.insert(layer.id) || layer.props.max_uid() >= MAX_NEXT_ID {
+                        return Err(ProjectError::Invalid("invalid or duplicate layer/property ID".into()));
+                    }
+                }
+            }
+        }
+        // Iterative DFS with active/done states detects cycles and visits shared DAG nodes once.
+        let mut active = BTreeSet::new();
+        let mut done = BTreeSet::new();
+        for (root, _) in self.comps() {
+            let mut pending = vec![(*root, false)];
+            while let Some((id, leaving)) = pending.pop() {
+                if leaving {
+                    active.remove(&id);
+                    done.insert(id);
+                    continue;
+                }
+                if done.contains(&id) {
+                    continue;
+                }
+                if !active.insert(id) {
+                    return Err(ProjectError::Invalid(format!("composition cycle at item {}", id.0)));
+                }
+                let comp = self.comp(id).ok_or_else(|| ProjectError::Invalid(format!("missing composition {}", id.0)))?;
+                pending.push((id, true));
+                for layer in &comp.layers {
+                    if let LayerSource::Comp { item } = layer.source {
+                        pending.push((item, false));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
     /// Whether `other` holds the same content. An allocated id counts (an edit may hand it out
     /// beyond the project, so it must stay taken). Shared compositions compare by pointer first,
@@ -1341,6 +1418,7 @@ impl Project {
             return Err(ProjectError::Invalid(format!("project schema {} is newer than this version supports ({SCHEMA_VERSION})", p.schema)));
         }
         p.fix_next_id();
+        p.check()?;
         Ok(p)
     }
 }

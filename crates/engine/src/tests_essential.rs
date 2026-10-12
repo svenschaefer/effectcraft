@@ -261,7 +261,7 @@ fn template_export_import_round_trip_with_overrides() {
     assert!(px[0] > 0.99 && px[1] > 0.99 && px[2] < 0.01, "yellow: {px:?}");
     let saved = effectcraft_project::Project::from_json(&t.project.to_json()).unwrap();
     let mut u = Session::default();
-    u.replace_project(saved, None);
+    u.replace_project(saved, None).unwrap();
     u.open_comp(show);
     let px = center(&u, show);
     assert!(px[0] > 0.99 && px[1] > 0.99 && px[2] < 0.01, "override survives save/load: {px:?}");

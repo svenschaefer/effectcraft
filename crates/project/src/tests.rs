@@ -74,6 +74,79 @@ fn unique_names_and_cycles() {
     assert!(p.comp_contains(cid, cid));
 }
 
+fn nested_comp(p: &mut Project, source: crate::ItemId, name: &str) -> crate::ItemId {
+    let comp = Comp::new(16, 16, FrameRate::FPS_29_97, Tick::from_seconds_f64(1.0));
+    let mut layer = build::layer(p, &comp, name, LayerSource::Comp { item: source }, (16, 16), None);
+    layer.name = name.into();
+    let mut comp = comp;
+    comp.layers.push(layer);
+    p.add_item(name, effectcraft_color::Label::Sandstone, None, ItemKind::Comp(comp.into()))
+}
+
+#[test]
+fn cyclic_project_files_are_refused_and_reachability_terminates() {
+    let (mut p, a) = project_with_layer();
+    let b = nested_comp(&mut p, a, "B");
+    let independent = p.add_item("C", effectcraft_color::Label::Sandstone, None, ItemKind::Comp(Comp::new(16, 16, FrameRate::FPS_29_97, Tick::ZERO).into()));
+    p.comp_mut(a).unwrap().layers[0].source = LayerSource::Comp { item: b };
+    assert!(!p.comp_contains(a, independent));
+    assert!(p.comp_contains(a, b));
+    assert!(Project::from_json(&p.to_json()).unwrap_err().to_string().contains("cycle"));
+}
+
+#[test]
+fn missing_composition_references_are_refused() {
+    let (mut p, a) = project_with_layer();
+    p.comp_mut(a).unwrap().layers[0].source = LayerSource::Comp { item: crate::ItemId(999) };
+    assert!(Project::from_json(&p.to_json()).unwrap_err().to_string().contains("missing composition"));
+}
+
+#[test]
+fn hostile_id_counters_and_object_ids_are_refused_without_overflow() {
+    let (p, a) = project_with_layer();
+    for next in [u64::MAX, crate::MAX_NEXT_ID + 1] {
+        let mut bad = p.clone();
+        bad.next_id = next;
+        assert!(Project::from_json(&bad.to_json()).is_err());
+    }
+    let mut bad = p.clone();
+    let mut item = bad.items.remove(&a).unwrap();
+    item.id = crate::ItemId(u64::MAX);
+    bad.items.insert(item.id, item);
+    assert!(Project::from_json(&bad.to_json()).is_err());
+    let mut bad = p.clone();
+    bad.comp_mut(a).unwrap().layers[0].props.uid = u64::MAX;
+    assert!(Project::from_json(&bad.to_json()).is_err());
+    let mut bad = p;
+    bad.items.get_mut(&a).unwrap().id = crate::ItemId(777);
+    assert!(Project::from_json(&bad.to_json()).is_err());
+}
+
+#[test]
+fn a_stale_counter_is_repaired_and_an_invalid_builder_counter_never_wraps() {
+    let (mut p, _) = project_with_layer();
+    p.next_id = 1;
+    let repaired = Project::from_json(&p.to_json()).unwrap();
+    assert!(repaired.next_id > p.items.keys().map(|id| id.0).max().unwrap());
+    p.next_id = u64::MAX;
+    p.alloc();
+    assert_eq!(p.next_id, u64::MAX);
+    assert!(p.check_id_counter().is_err());
+}
+
+#[test]
+fn shared_and_deep_composition_graphs_are_walked_iteratively() {
+    let (mut p, first) = project_with_layer();
+    let mut last = first;
+    for index in 0..256 {
+        last = nested_comp(&mut p, last, &format!("Nested {index}"));
+    }
+    assert!(p.comp_contains(last, first));
+    assert!(!p.comp_contains(first, last));
+    p.check().unwrap();
+    Project::from_json(&p.to_json()).unwrap();
+}
+
 #[test]
 fn camera_and_light_layers_build() {
     let (mut p, cid) = project_with_layer();

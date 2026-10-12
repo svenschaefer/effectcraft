@@ -186,7 +186,7 @@ fn a_session_restored_with_unsaved_changes_stays_modified() {
     s.execute("comp.new", json!({"name": "H", "width": 64, "height": 64, "duration": 2})).unwrap();
     let p = (*s.project).clone();
     // The web app reopens the last visit's project, which had unsaved changes.
-    s.replace_project(p, None);
+    s.replace_project(p, None).unwrap();
     assert!(!s.is_dirty());
     s.mark_unsaved();
     assert!(s.is_dirty());

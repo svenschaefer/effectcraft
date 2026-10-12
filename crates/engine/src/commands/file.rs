@@ -18,18 +18,18 @@ fn new_project(s: &mut Session, _: &Value) -> Result<Value> {
     if s.prefs.project.use_template && !tpl.is_empty() {
         let bytes = s.services.read_file(&tpl).map_err(|e| EngineError::Other(format!("cannot read the new project template {tpl}: {e}")))?;
         let text = String::from_utf8(bytes).map_err(|_| EngineError::Other("the new project template is not a project file".into()))?;
-        s.replace_project(Project::from_json(&text)?, None);
+        s.replace_project(Project::from_json(&text)?, None)?;
         s.update_sentinel();
         return Ok(json!({"template": tpl}));
     }
-    s.replace_project(Project::default(), None);
+    s.replace_project(Project::default(), None)?;
     s.update_sentinel();
     Ok(Value::Null)
 }
 
 fn demo(s: &mut Session, _: &Value) -> Result<Value> {
     let p = crate::demo::demo_project();
-    s.replace_project(p, None);
+    s.replace_project(p, None)?;
     if let Some(id) = s.project.items.values().find(|i| i.name == crate::demo::MAIN_COMP).map(|i| i.id) {
         s.open_comp(id);
         s.set_time(effectcraft_time::Tick::from_seconds_f64(2.5));
@@ -45,7 +45,7 @@ pub(crate) fn open(s: &mut Session, p: &Value) -> Result<Value> {
     let text = if crate::xml_project::is_xml(&text) { crate::xml_project::from_xml(&text).map_err(EngineError::Other)? } else { text };
     let mut proj = Project::from_json(&text).map_err(|e| EngineError::Other(format!("{path} is not a project EffectCraft can open: {e}")))?;
     resolve_relative_footage(&mut proj, path, s.services.as_ref());
-    s.replace_project(proj, Some(path.to_string()));
+    s.replace_project(proj, Some(path.to_string()))?;
     s.note_project_path(path);
     // Written by a newer EffectCraft: what this version doesn't know would be lost on saving.
     let saved_by = effectcraft_project::saved_by(&text);

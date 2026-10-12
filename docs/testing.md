@@ -1,5 +1,7 @@
 # Testing
 
+See [Quality checks](quality-checks.md) for the PR gate and loaded-project validation contracts.
+
 ```sh
 cargo test --workspace     # everything
 cargo xtask ci             # fmt, clippy -D warnings, tests, layers, assets, wasm

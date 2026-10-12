@@ -13,7 +13,7 @@ pub struct Ids<'a>(pub &'a mut u64);
 impl Ids<'_> {
     pub fn alloc(&mut self) -> u64 {
         let v = *self.0;
-        *self.0 += 1;
+        *self.0 = self.0.saturating_add(1);
         v
     }
     pub fn prop(&mut self, m: &str, name: &str, v: Value) -> Property {

@@ -47,7 +47,7 @@ fn random_comp(s: &mut Session) -> ItemId {
 #[test]
 fn renders_are_bit_identical_across_runs_and_thread_counts() {
     let mut s = effectcraft_host::session();
-    s.replace_project(effectcraft_engine::demo::demo_project(), None);
+    s.replace_project(effectcraft_engine::demo::demo_project(), None).unwrap();
     let random = random_comp(&mut s);
     let p = (*s.project).clone();
     let mut comps: Vec<(ItemId, f64)> = p.comps().map(|(id, c)| (*id, c.duration.seconds())).collect();

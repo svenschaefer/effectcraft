@@ -497,7 +497,7 @@ pub fn render_thumb(p: &Project) -> Option<String> {
     let cid = main_comp(p)?;
     let t = p.comp(cid)?.poster_time;
     let mut s = Session::default();
-    s.replace_project(p.clone(), None);
+    s.replace_project(p.clone(), None).ok()?;
     let (w, h, rgba) = s.render_rgba8(cid, t, (THUMB_W * 2) as u32).ok()?;
     Some(encode_thumb(w, h, &rgba))
 }
@@ -795,7 +795,7 @@ fn create(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let cid = main_comp(&proj);
     let poster = cid.and_then(|c| proj.comp(c)).map(|c| c.poster_time).unwrap_or(Tick::ZERO);
-    s.replace_project(proj, None);
+    s.replace_project(proj, None)?;
     s.update_sentinel();
     if let Some(c) = cid {
         s.open_comp(c);
@@ -1043,7 +1043,7 @@ mod tests {
             let cid = main_comp(&p).unwrap();
             let t = p.comp(cid).unwrap().poster_time;
             let mut s = Session::default();
-            s.replace_project(p, None);
+            s.replace_project(p, None).unwrap();
             let (w, h, rgba) = s.render_rgba8(cid, t, 640).unwrap();
             let png = crate::commands::comp_more::encode_png(&rgba, w, h).unwrap();
             std::fs::write(d.join(format!("{}.png", b.id)), png).unwrap();

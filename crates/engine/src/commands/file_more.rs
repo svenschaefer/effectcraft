@@ -72,7 +72,7 @@ fn close(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn close_project(s: &mut Session, _: &Value) -> Result<Value> {
-    s.replace_project(Project::default(), None);
+    s.replace_project(Project::default(), None)?;
     Ok(Value::Null)
 }
 

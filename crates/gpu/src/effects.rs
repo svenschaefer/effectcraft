@@ -152,6 +152,31 @@ fn apply(e: &mut Enc, id: &str, ctx: &EffectCtx, b: GBuf) -> Option<GBuf> {
     if !effectcraft_effects::catalog::gpu_supported(id, ctx) {
         return None;
     }
+    // The existing CPU/GPU oracle cases reproduce threshold flips and displacement
+    // errors on Intel Vulkan. Keep the compositor running while these effects use
+    // the reference implementation; do not relax the image comparison tolerances.
+    if e.g.intel_vulkan
+        && matches!(
+            id,
+            "ec.noise.curlnoise"
+                | "ec.sim.ccdrizzle"
+                | "ec.stylize.posterize"
+                | "ec.color.psarbitrarymap"
+                | "ec.transition.ccgridwipe"
+                | "ec.vr.chromaticaberrations"
+        )
+    {
+        let mut img = e.download(&b.img)?;
+        if let Some(levels) = b.img.levels {
+            // Restore the CPU's representation of already quantised channels before
+            // decisions at exact thresholds (the device's division may differ by an ulp).
+            img.quantize(levels);
+        }
+        let spec = effectcraft_effects::find(id)?;
+        let out = (spec.render)(ctx, Buf { img, offset: b.offset, scale: b.scale });
+        let img = e.g.upload_image(&out.img)?;
+        return Some(GBuf { img, offset: out.offset, scale: out.scale });
+    }
     match id {
         "ec.blur.gaussian" => gaussian(e, ctx, b),
         "ec.blur.fastbox" => box_blur(e, ctx, b),

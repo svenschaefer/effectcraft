@@ -116,7 +116,7 @@ mod tests {
     fn ui_ops_runs_on_a_small_project() {
         let m = ui_ops(|| {
             let mut s = Session::default();
-            s.replace_project(effectcraft_engine::perf::large_project(&effectcraft_engine::perf::LargeSpec::small()), None);
+            s.replace_project(effectcraft_engine::perf::large_project(&effectcraft_engine::perf::LargeSpec::small()), None).unwrap();
             s
         });
         let names: Vec<&str> = m.iter().map(|m| m.name).collect();
